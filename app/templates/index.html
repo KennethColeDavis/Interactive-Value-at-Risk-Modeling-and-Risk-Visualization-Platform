@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Monte Carlo VaR Calculator</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      background: #f5f5f5;
+      color: #333;
+      margin: 0;
+      padding: 20px;
+    }
+
+    h1 { font-size: 22px; margin-bottom: 4px; }
+    h2 { font-size: 15px; margin: 20px 0 10px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+    p.subtitle { color: #666; margin: 0 0 20px; font-size: 13px; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 20px;
+      max-width: 1100px;
+    }
+
+    .panel {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 16px;
+    }
+
+    /* Form */
+    .field { margin-bottom: 14px; }
+    label { display: block; margin-bottom: 4px; font-weight: bold; font-size: 13px; }
+    input[type="number"], input[type="text"], select {
+      width: 100%; padding: 7px 9px;
+      border: 1px solid #ccc; border-radius: 4px;
+      font-size: 13px; box-sizing: border-box;
+    }
+    input:focus, select:focus { outline: none; border-color: #4a90d9; }
+
+    .slider-row { display: flex; align-items: center; gap: 10px; }
+    .slider-row input[type="range"] { flex: 1; }
+    .slider-val { min-width: 36px; font-size: 13px; font-weight: bold; color: #4a90d9; }
+
+    /* Positions */
+    .pos-header {
+      display: grid;
+      grid-template-columns: 72px 1fr 80px 28px;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: bold;
+      color: #888;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    #positions-list { display: flex; flex-direction: column; gap: 8px; }
+
+    .pos-card {
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .pos-card.loading { border-color: #f0a030; }
+    .pos-card.loaded  { border-color: #4caf7d; }
+    .pos-card.error   { border-color: #e05555; }
+
+    .pos-card-inputs {
+      display: grid;
+      grid-template-columns: 72px 1fr 80px 28px;
+      gap: 6px;
+      padding: 6px 8px;
+      align-items: center;
+    }
+    .pos-card-inputs input { padding: 6px 8px; font-size: 12px; }
+
+    .pos-card-meta {
+      background: #fafafa;
+      border-top: 1px solid #eee;
+      padding: 4px 8px;
+      font-size: 11px;
+      color: #666;
+      display: flex;
+      gap: 12px;
+      min-height: 22px;
+      align-items: center;
+    }
+    .pos-card-meta.loading { color: #f0a030; }
+    .pos-card-meta.error   { color: #e05555; }
+    .pos-card-meta .price  { color: #2a7a2a; font-weight: bold; }
+    .pos-card-meta .vol    { color: #555; }
+
+    .btn-remove {
+      width: 26px; height: 26px; padding: 0;
+      background: none; border: 1px solid #ddd;
+      border-radius: 4px; color: #aaa; cursor: pointer; font-size: 14px;
+    }
+    .btn-remove:hover { background: #fff0f0; border-color: #e05555; color: #e05555; }
+
+    .btn-add {
+      width: 100%; margin-top: 10px; padding: 7px;
+      background: none; border: 1px dashed #ccc;
+      border-radius: 4px; color: #888; cursor: pointer; font-size: 12px;
+    }
+    .btn-add:hover { border-color: #4a90d9; color: #4a90d9; background: #f0f6ff; }
+
+    .btn-run {
+      width: 100%; margin-top: 16px; padding: 10px;
+      background: #4a90d9; border: none; color: #fff;
+      font-size: 14px; font-weight: bold; border-radius: 4px; cursor: pointer;
+    }
+    .btn-run:hover { background: #3a7fc8; }
+    .btn-run:disabled { background: #aaa; cursor: not-allowed; }
+
+    /* Results */
+    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+    .card {
+      background: #fff; border: 1px solid #ddd; border-radius: 6px;
+      padding: 14px 16px; border-top: 3px solid #4a90d9;
+    }
+    .card.green { border-top-color: #4caf7d; }
+    .card.grey  { border-top-color: #999; }
+    .card-label { font-size: 11px; color: #888; text-transform: uppercase; font-weight: bold; margin-bottom: 6px; }
+    .card-value { font-size: 22px; font-weight: bold; color: #333; }
+    .card-value.blue  { color: #4a90d9; }
+    .card-value.green { color: #4caf7d; }
+    .card-sub   { font-size: 11px; color: #aaa; margin-top: 4px; }
+
+    /* Chart */
+    .chart-wrap {
+      background: #fff; border: 1px solid #ddd; border-radius: 6px;
+      padding: 16px; margin-bottom: 20px;
+    }
+    .chart-wrap h3 { font-size: 13px; margin: 0 0 12px; color: #555; }
+    canvas { display: none; width: 100%; height: 180px; }
+    .placeholder { text-align: center; padding: 40px 0; color: #ccc; font-size: 13px; }
+
+    /* Table */
+    .table-wrap {
+      background: #fff; border: 1px solid #ddd; border-radius: 6px;
+      overflow: hidden;
+    }
+    .table-wrap h3 { font-size: 13px; margin: 0; padding: 12px 16px; border-bottom: 1px solid #eee; color: #555; }
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      text-align: left; padding: 8px 12px;
+      font-size: 11px; color: #888; text-transform: uppercase;
+      background: #fafafa; border-bottom: 1px solid #eee;
+    }
+    td { padding: 9px 12px; font-size: 13px; border-bottom: 1px solid #f0f0f0; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #fafafa; }
+    td.num { text-align: right; }
+    td.red  { color: #e05555; }
+  </style>
+</head>
+<body>
+
+<h1>Monte Carlo VaR Calculator</h1>
+<p class="subtitle">Enter your portfolio positions and run a simulation to estimate Value at Risk.</p>
+
+<div class="layout">
+
+  <!-- LEFT: INPUTS -->
+  <div>
+    <div class="panel">
+      <h2>Parameters</h2>
+
+      <div class="field">
+        <label>Confidence Level</label>
+        <div class="slider-row">
+          <input type="range" id="confidence" min="90" max="99" value="95"
+            oninput="document.getElementById('conf-val').textContent=this.value+'%'"/>
+          <span class="slider-val" id="conf-val">95%</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Time Horizon (days)</label>
+        <div class="slider-row">
+          <input type="range" id="horizon" min="1" max="30" value="1"
+            oninput="document.getElementById('hor-val').textContent=this.value+'d'"/>
+          <span class="slider-val" id="hor-val">1d</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Number of Simulations</label>
+        <select id="simulations">
+          <option value="1000">1,000</option>
+          <option value="10000" selected>10,000</option>
+          <option value="100000">100,000</option>
+        </select>
+      </div>
+
+      <h2>Positions</h2>
+
+      <div class="pos-header">
+        <span>Ticker</span>
+        <span>Value ($)</span>
+        <span>Vol (σ)</span>
+        <span></span>
+      </div>
+
+      <div id="positions-list"></div>
+
+      <button class="btn-add" onclick="addPosition()">+ Add Position</button>
+      <button class="btn-run" id="run-btn" onclick="runSimulation()">Run Simulation</button>
+    </div>
+  </div>
+
+  <!-- RIGHT: RESULTS -->
+  <div>
+    <div class="cards">
+      <div class="card">
+        <div class="card-label">Portfolio VaR</div>
+        <div class="card-value blue" id="card-var">—</div>
+        <div class="card-sub" id="card-var-sub">Run simulation to calculate</div>
+      </div>
+      <div class="card green">
+        <div class="card-label">CVaR (Expected Shortfall)</div>
+        <div class="card-value green" id="card-cvar">—</div>
+        <div class="card-sub">Average tail loss</div>
+      </div>
+      <div class="card grey">
+        <div class="card-label">Portfolio Value</div>
+        <div class="card-value" id="card-pval">$0</div>
+        <div class="card-sub" id="card-pval-sub">No positions</div>
+      </div>
+    </div>
+
+    <div class="chart-wrap">
+      <h3>P&amp;L Distribution</h3>
+      <canvas id="chart" height="180"></canvas>
+      <div class="placeholder" id="chart-placeholder">Run a simulation to see the P&amp;L distribution</div>
+    </div>
+
+    <div class="table-wrap">
+      <h3>Position Breakdown</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Ticker</th>
+            <th>Company</th>
+            <th>Notional</th>
+            <th>Live Price</th>
+            <th>Volatility</th>
+            <th>Weight</th>
+            <th>Position VaR</th>
+            <th>% of Total</th>
+          </tr>
+        </thead>
+        <tbody id="breakdown-tbody">
+          <tr><td colspan="8" style="text-align:center;color:#ccc;padding:30px">No results yet</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+let positions = [];
+let posId = 0;
+
+// ── Add / Remove  
+function addPosition() {
+  positions.push({ id: posId++, ticker:'', value:'', vol:'', name:'', price:'', status:'idle' });
+  renderPositions();
+}
+
+function removePosition(id) {
+  positions = positions.filter(p => p.id !== id);
+  renderPositions();
+  updatePortfolioValue();
+}
+
+function renderPositions() {
+  const list = document.getElementById('positions-list');
+  list.innerHTML = '';
+  positions.forEach(p => {
+    const card = document.createElement('div');
+    card.className = `pos-card ${p.status}`;
+
+    let metaContent = '';
+    if (p.status === 'loading') {
+      metaContent = '<span>Fetching data...</span>';
+    } else if (p.status === 'error') {
+      metaContent = `<span>${p.errorMsg || 'Ticker not found'}</span>`;
+    } else if (p.status === 'loaded') {
+      metaContent = `<span>${p.name}</span><span class="price">$${p.price}</span><span class="vol">σ = ${(p.vol*100).toFixed(1)}% ann.</span>`;
+    } else {
+      metaContent = '<span>Enter ticker to auto-fill price &amp; volatility</span>';
+    }
+
+    card.innerHTML = `
+      <div class="pos-card-inputs">
+        <input type="text" placeholder="AAPL" value="${p.ticker}" maxlength="6"
+          oninput="updateField(${p.id},'ticker',this.value)"
+          onblur="onTickerBlur(${p.id}, this.value)"/>
+        <input type="number" placeholder="100000" value="${p.value}" min="0"
+          oninput="updateField(${p.id},'value',this.value)"/>
+        <input type="number" placeholder="0.25" value="${p.vol}" step="0.01" min="0"
+          id="vol-${p.id}" oninput="updateField(${p.id},'vol',this.value)"/>
+        <button class="btn-remove" onclick="removePosition(${p.id})">×</button>
+      </div>
+      <div class="pos-card-meta ${p.status}">${metaContent}</div>
+    `;
+    list.appendChild(card);
+  });
+}
+
+function updateField(id, field, value) {
+  const p = positions.find(x => x.id === id);
+  if (p) { p[field] = value; updatePortfolioValue(); }
+}
+
+//Yahoo Finance lookup
+async function onTickerBlur(id, raw) {
+  const ticker = raw.trim().toUpperCase();
+  if (!ticker) return;
+  const p = positions.find(x => x.id === id);
+  if (!p || (p.status === 'loaded' && p.ticker === ticker)) return;
+
+  p.ticker = ticker;
+  p.status = 'loading';
+  renderPositions();
+
+  try {
+    const res  = await fetch(`/api/ticker/${encodeURIComponent(ticker)}`);
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      p.status   = 'error';
+      p.errorMsg = data.error || 'Error fetching data';
+    } else {
+      p.status = 'loaded';
+      p.name   = data.name;
+      p.price  = data.price;
+      if (!p.volManual) p.vol = data.volatility;
+    }
+  } catch {
+    p.status   = 'error';
+    p.errorMsg = 'Network error — is Flask running?';
+  }
+
+  renderPositions();
+  updatePortfolioValue();
+
+  const volInput = document.getElementById(`vol-${id}`);
+  if (volInput && p.status === 'loaded') {
+    volInput.value = p.vol;
+    volInput.addEventListener('input', () => {
+      const x = positions.find(q => q.id === id);
+      if (x) { x.volManual = true; x.vol = volInput.value; }
+    }, { once: true });
+  }
+}
+
+function updatePortfolioValue() {
+  const total = positions.reduce((s, p) => s + (parseFloat(p.value) || 0), 0);
+  document.getElementById('card-pval').textContent = '$' + fmt(total);
+  document.getElementById('card-pval-sub').textContent =
+    positions.length + ' position(s) loaded';
+}
+
+// Monte Carlo
+function fmt(n) { return Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 }); }
+function fmtC(n) { return (n < 0 ? '-$' : '$') + fmt(Math.abs(n)); }
+
+function runSimulation() {
+  const valid = positions.filter(p => p.ticker && parseFloat(p.value) > 0 && parseFloat(p.vol) > 0);
+  if (!valid.length) { alert('Please add at least one position with a value and volatility.'); return; }
+
+  const confidence = parseInt(document.getElementById('confidence').value) / 100;
+  const horizon    = parseInt(document.getElementById('horizon').value);
+  const N          = parseInt(document.getElementById('simulations').value);
+
+  const btn = document.getElementById('run-btn');
+  btn.disabled = true;
+  btn.textContent = 'Running...';
+
+  setTimeout(() => {
+    const sqrtH = Math.sqrt(horizon);
+    const sims  = new Float64Array(N);
+    for (let i = 0; i < N; i++) {
+      let pnl = 0;
+      for (const p of valid) {
+        const u1 = Math.random(), u2 = Math.random();
+        const z  = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+        pnl += parseFloat(p.value) * (parseFloat(p.vol) / Math.sqrt(252)) * sqrtH * z;
+      }
+      sims[i] = pnl;
+    }
+
+    const sorted = Array.from(sims).sort((a, b) => a - b);
+    const varIdx = Math.floor((1 - confidence) * N);
+    const varVal = -sorted[varIdx];
+    const cvar   = -(sorted.slice(0, varIdx).reduce((s, x) => s + x, 0) / varIdx);
+    const z      = confidence >= 0.99 ? 2.326 : confidence >= 0.975 ? 1.96 : 1.645;
+    const posVaR = valid.map(p =>
+      parseFloat(p.value) * (parseFloat(p.vol) / Math.sqrt(252)) * sqrtH * z
+    );
+
+    document.getElementById('card-var').textContent     = fmtC(varVal);
+    document.getElementById('card-var-sub').textContent =
+      `${(confidence*100).toFixed(0)}% confidence · ${horizon}-day horizon`;
+    document.getElementById('card-cvar').textContent = fmtC(cvar);
+
+    drawChart(sorted, varVal);
+
+    const totalVaR = posVaR.reduce((s, v) => s + v, 0);
+    const totalVal = valid.reduce((s, p) => s + parseFloat(p.value), 0);
+    const tbody = document.getElementById('breakdown-tbody');
+    tbody.innerHTML = '';
+    valid.forEach((p, i) => {
+      const val = parseFloat(p.value), vol = parseFloat(p.vol);
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong>${p.ticker}</strong></td>
+        <td style="color:#888">${p.name || '—'}</td>
+        <td class="num">$${fmt(val)}</td>
+        <td class="num">${p.price ? '$' + p.price : '—'}</td>
+        <td class="num">${(vol*100).toFixed(1)}%</td>
+        <td class="num">${(val/totalVal*100).toFixed(1)}%</td>
+        <td class="num red">-$${fmt(posVaR[i])}</td>
+        <td class="num">${(posVaR[i]/totalVaR*100).toFixed(1)}%</td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    btn.disabled = false;
+    btn.textContent = 'Run Simulation';
+  }, 50);
+}
+
+// ── Canvas histogram ────────────────────────────────────────────────────────
+function drawChart(sorted, varVal) {
+  const canvas = document.getElementById('chart');
+  document.getElementById('chart-placeholder').style.display = 'none';
+  canvas.style.display = 'block';
+  const W = canvas.offsetWidth, H = 180;
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  const N = sorted.length, min = sorted[0], max = sorted[N-1];
+  const bins = 50, binW = (max - min) / bins;
+  const counts = new Array(bins).fill(0);
+  for (const v of sorted) { let b = Math.min(Math.floor((v-min)/binW), bins-1); counts[b]++; }
+  const maxC = Math.max(...counts);
+  const pad = { l:40, r:10, t:10, b:28 };
+  const cW = W - pad.l - pad.r, cH = H - pad.t - pad.b;
+  ctx.clearRect(0, 0, W, H);
+
+  ctx.strokeStyle = '#eee'; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.t + (cH/4)*i;
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l+cW, y); ctx.stroke();
+  }
+
+  const varX = pad.l + ((-varVal - min) / (max - min)) * cW;
+  for (let b = 0; b < bins; b++) {
+    const bx = pad.l + (b/bins)*cW, bw = cW/bins - 1;
+    const bh = (counts[b]/maxC)*cH, by = pad.t+cH-bh;
+    ctx.fillStyle = (min + (b+0.5)*binW) < -varVal ? '#e05555' : '#4caf7d';
+    ctx.globalAlpha = 0.75;
+    ctx.fillRect(bx, by, bw, bh);
+  }
+  ctx.globalAlpha = 1;
+
+  ctx.strokeStyle = '#f0a030'; ctx.lineWidth = 2; ctx.setLineDash([4,3]);
+  ctx.beginPath(); ctx.moveTo(varX, pad.t); ctx.lineTo(varX, pad.t+cH); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#f0a030'; ctx.font = 'bold 10px Arial'; ctx.textAlign = 'center';
+  ctx.fillText('VaR', varX, pad.t - 2);
+
+  ctx.fillStyle = '#aaa'; ctx.font = '10px Arial';
+  [min, 0, max].forEach(v => {
+    const x = pad.l + ((v-min)/(max-min))*cW;
+    ctx.textAlign = 'center';
+    ctx.fillText(fmtC(v), x, H-6);
+  });
+}
+
+// Start with two blank rows
+addPosition();
+addPosition();
+updatePortfolioValue();
+</script>
+</body>
+</html>
