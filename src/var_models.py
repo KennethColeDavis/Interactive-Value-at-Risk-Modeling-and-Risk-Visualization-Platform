@@ -150,13 +150,12 @@ def parametric_var(
             "daily_volatility":  round(float(sigma), 6),
             "z_score":           round(float(z), 4),
             "normality_pvalue":  round(float(jb_pval), 4),
-            "normality_warning": jb_pval < 0.05,   # True = returns may not be normal
+            "normality_warning": bool(jb_pval < 0.05),
         }
     )
 
 
 # 3. Monte Carlo VaR
-
 def monte_carlo_var(
     port_returns: pd.Series,
     portfolio_value: float,
