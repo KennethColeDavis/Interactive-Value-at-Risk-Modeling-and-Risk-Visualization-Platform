@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VaR Risk Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="brand">
+        <span class="brand-mark">▲</span>
+        <span class="brand-name">VaR Platform</span>
+      </div>
+      <nav class="header-nav">
+        <span class="nav-label">Portfolio Risk Analytics</span>
+      </nav>
+    </div>
+  </header>
+
+  <main class="layout">
+
+    <!-- ── LEFT PANEL: Inputs ── -->
+    <aside class="panel panel-input">
+
+      <section class="input-section">
+        <h2 class="section-title">Portfolio Holdings</h2>
+        <p class="section-sub">Enter tickers and number of shares held.</p>
+
+        <div id="holdings-list" class="holdings-list"></div>
+
+        <button id="add-holding-btn" class="btn-ghost">
+          <span class="btn-icon">+</span> Add Holding
+        </button>
+      </section>
+
+      <section class="input-section">
+        <h2 class="section-title">Risk Parameters</h2>
+
+        <div class="param-group">
+          <label class="param-label">Confidence Level</label>
+          <div id="confidence-pills" class="pill-group"></div>
+        </div>
+
+        <div class="param-group">
+          <label class="param-label">Lookback Window</label>
+          <div id="lookback-pills" class="pill-group"></div>
+        </div>
+
+        <div class="param-group">
+          <label class="param-label">Holding Period</label>
+          <div id="holding-period-pills" class="pill-group"></div>
+        </div>
+      </section>
+
+      <button id="analyse-btn" class="btn-primary" disabled>
+        <span class="btn-text">Run Analysis</span>
+        <span class="btn-loader" hidden>
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        </span>
+      </button>
+
+      <button id="backtest-btn" class="btn-secondary" disabled>
+        <span class="btn-text">Run Backtest</span>
+        <span class="btn-loader" hidden>
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        </span>
+      </button>
+
+      <div id="input-error" class="error-banner" hidden></div>
+
+    </aside>
+
+    <!-- ── RIGHT PANEL: Results ── -->
+    <section class="panel panel-results" id="results-panel">
+
+      <div class="results-empty" id="results-empty">
+        <div class="empty-icon">◈</div>
+        <p>Add your holdings and run the analysis<br>to see your portfolio risk metrics.</p>
+      </div>
+
+
+      <div id="results-content" hidden>
+
+        <!-- Portfolio summary -->
+        <div class="results-header">
+          <div>
+            <h2 class="results-title" id="results-title">Portfolio Analysis</h2>
+            <p class="results-meta" id="results-meta"></p>
+          </div>
+          <div class="portfolio-value-badge">
+            <span class="pv-label">Portfolio Value</span>
+            <span class="pv-value" id="portfolio-value-display">—</span>
+          </div>
+        </div>
+
+        <!-- Holdings breakdown table -->
+        <div class="card" id="holdings-card">
+          <h3 class="card-title">Holdings</h3>
+          <table class="data-table" id="holdings-table">
+            <thead>
+              <tr>
+                <th>Ticker</th>
+                <th>Shares</th>
+                <th>Price</th>
+                <th>Value</th>
+                <th>Weight</th>
+              </tr>
+            </thead>
+            <tbody id="holdings-table-body"></tbody>
+          </table>
+        </div>
+
+        <!-- VaR results cards -->
+        <h3 class="section-title" style="margin-top: 2rem;">Value at Risk Results</h3>
+        <p class="section-sub" id="var-subtitle"></p>
+
+        <div class="var-cards" id="var-cards"></div>
+
+        <!-- Summary comparison table -->
+        <div class="card" id="summary-card">
+          <h3 class="card-title">Method Comparison</h3>
+          <table class="data-table" id="summary-table">
+            <thead>
+              <tr>
+                <th>Method</th>
+                <th>VaR %</th>
+                <th>VaR $</th>
+                <th>CVaR / ES $</th>
+              </tr>
+            </thead>
+            <tbody id="summary-table-body"></tbody>
+          </table>
+        </div>
+
+        <!-- Charts — one per method -->
+        <h3 class="section-title" style="margin-top: 2rem;">Return Distributions</h3>
+        <p class="section-sub">Each chart shows the return distribution for that method with the VaR threshold marked.</p>
+
+        <div class="charts-grid-3">
+          <div class="card chart-card">
+            <div class="chart-card-header">
+              <span class="chart-method-label hist">Historical</span>
+              <span class="chart-var-badge" id="hist-badge"></span>
+            </div>
+            <canvas id="hist-chart"></canvas>
+          </div>
+          <div class="card chart-card">
+            <div class="chart-card-header">
+              <span class="chart-method-label para">Parametric (Gaussian)</span>
+              <span class="chart-var-badge" id="para-badge"></span>
+            </div>
+            <canvas id="para-chart"></canvas>
+          </div>
+          <div class="card chart-card">
+            <div class="chart-card-header">
+              <span class="chart-method-label mc">Monte Carlo</span>
+              <span class="chart-var-badge" id="mc-badge"></span>
+            </div>
+            <canvas id="mc-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Normality warning -->
+        <div id="normality-warning" class="warning-banner" hidden>
+          <strong>Note:</strong> The Jarque-Bera test suggests portfolio returns may not be normally distributed.
+          The Parametric (Gaussian) VaR estimate may understate actual risk.
+        </div>
+
+        <!-- Backtest results -->
+        <div id="backtest-results" hidden>
+          <div class="section-divider"></div>
+          <h3 class="section-title" style="margin-top: 2rem;">Backtest Results</h3>
+          <p class="section-sub" id="backtest-subtitle"></p>
+
+          <div class="backtest-stat-row" id="backtest-stat-row"></div>
+
+          <div class="card" id="backtest-table-card">
+            <h3 class="card-title">Statistical Tests</h3>
+            <table class="data-table" id="backtest-table">
+              <thead>
+                <tr>
+                  <th>Method</th>
+                  <th>Violations</th>
+                  <th>Actual Rate</th>
+                  <th>Expected Rate</th>
+                  <th>Kupiec p-value</th>
+                  <th>Kupiec</th>
+                  <th>Independence</th>
+                </tr>
+              </thead>
+              <tbody id="backtest-table-body"></tbody>
+            </table>
+          </div>
+
+          <div class="card chart-card" style="margin-bottom:1.25rem;">
+            <div class="chart-card-header">
+              <span class="card-title" style="margin:0;">Violation Timeline</span>
+              <span style="font-size:0.72rem; color:var(--text-3); font-family:var(--font-mono);">Actual returns vs rolling VaR thresholds</span>
+            </div>
+            <canvas id="backtest-chart" style="max-height:260px;"></canvas>
+          </div>
+
+          <div class="backtest-legend">
+            <span class="legend-item"><span class="legend-dot" style="background:#FF3B30"></span>Historical VaR</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#1A6BFF"></span>Parametric VaR</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#00B87A"></span>Monte Carlo VaR</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#555; border-radius:2px;"></span>Actual Return</span>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+  <script src="/static/js/main.js"></script>
+</body>
+</html>
