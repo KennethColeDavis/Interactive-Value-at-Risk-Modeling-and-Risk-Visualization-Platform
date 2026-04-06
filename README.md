@@ -3,6 +3,8 @@
 A full-stack portfolio risk analytics web application built with Flask. Enter any portfolio of stocks by ticker and share count, calculate Value-at-Risk using three methods, and backtest model accuracy against real historical data.
 
 ---
+## Example output
+![alt text](image.png)
 
 ## Features
 
