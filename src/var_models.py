@@ -1,138 +1,284 @@
+"""
+var_models.py
+-------------
+All three VaR calculation methods for the portfolio risk application.
+
+Each method accepts:
+    port_returns     : pd.Series of daily portfolio log-returns
+    portfolio_value  : total portfolio value in USD
+    confidence       : confidence level, e.g. 0.90, 0.95, 0.99
+    holding_period   : number of days (1, 5, or 10)
+
+Each method returns a VaRResult dict with consistent keys so Flask
+routes and the frontend can handle all three methods identically.
+"""
+
 import numpy as np
 import pandas as pd
 from scipy import stats
-from dataclasses import dataclass
 
 
-@dataclass
-class VaRResult:
-    """Holds VaR and CVaR outputs for a single method."""
-    method:    str
-    var_pct:   float
-    var_usd:   float
-    cvar_pct:  float
-    cvar_usd:  float
+# ── Holding period scaling ─────────────────────────────────────────────────
+HOLDING_PERIODS = {
+    "1d":  1,
+    "5d":  5,
+    "10d": 10,
+}
 
+CONFIDENCE_LEVELS = {
+    "90": 0.90,
+    "95": 0.95,
+    "99": 0.99,
+}
+
+
+def _validate_inputs(port_returns: pd.Series, confidence: float, holding_period: int):
+    """Shared input validation for all VaR methods."""
+    if len(port_returns) < 30:
+        raise ValueError(f"Insufficient return data: {len(port_returns)} observations (minimum 30 required).")
+    if not (0 < confidence < 1):
+        raise ValueError(f"Confidence must be between 0 and 1, got {confidence}.")
+    if holding_period not in [1, 5, 10]:
+        raise ValueError(f"Holding period must be 1, 5, or 10 days, got {holding_period}.")
+
+
+def _scale_to_holding_period(var_1d: float, cvar_1d: float, holding_period: int) -> tuple[float, float]:
+    """
+    Scale 1-day VaR and CVaR to a multi-day holding period using
+    the square-root-of-time rule.
+    """
+    scale = np.sqrt(holding_period)
+    return var_1d * scale, cvar_1d * scale
+
+
+def _build_result(
+    method: str,
+    var_pct: float,
+    cvar_pct: float,
+    portfolio_value: float,
+    holding_period: int,
+    confidence: float,
+    extra: dict = None,
+) -> dict:
+    """
+    Construct a standardised VaRResult dict.
+
+    All $ values are positive (representing losses).
+    All % values are negative (representing return thresholds).
+    """
+    var_usd  = abs(var_pct)  * portfolio_value
+    cvar_usd = abs(cvar_pct) * portfolio_value
+
+    result = {
+        "method":          method,
+        "confidence":      confidence,
+        "confidence_pct":  f"{confidence * 100:.0f}%",
+        "holding_period":  holding_period,
+        "portfolio_value": portfolio_value,
+        # Percentage-based (negative = loss threshold)
+        "var_pct":         round(var_pct,  6),
+        "cvar_pct":        round(cvar_pct, 6),
+        # Display-formatted
+        "var_pct_fmt":     f"{var_pct:.3%}",
+        "cvar_pct_fmt":    f"{cvar_pct:.3%}",
+        # Dollar-based (positive = dollar loss)
+        "var_usd":         round(var_usd,  2),
+        "cvar_usd":        round(cvar_usd, 2),
+        "var_usd_fmt":     f"${var_usd:,.2f}",
+        "cvar_usd_fmt":    f"${cvar_usd:,.2f}",
+    }
+
+    if extra:
+        result.update(extra)
+
+    return result
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 1. Historical VaR
+# ══════════════════════════════════════════════════════════════════════════════
 
 def historical_var(
-    returns: pd.Series,
-    confidence: float,
+    port_returns: pd.Series,
     portfolio_value: float,
-) -> VaRResult:
+    confidence: float = 0.95,
+    holding_period: int = 1,
+) -> dict:
     """
     Non-parametric VaR from the empirical return distribution.
-    No assumptions — uses actual observed returns directly.
-    """
-    alpha    = 1 - confidence
-    var_pct  = np.percentile(returns, alpha * 100)
-    cvar_pct = returns[returns <= var_pct].mean()
 
-    return VaRResult(
-        method        = "Historical",
-        var_pct       = var_pct,
-        var_usd       = abs(var_pct)  * portfolio_value,
-        cvar_pct      = cvar_pct,
-        cvar_usd      = abs(cvar_pct) * portfolio_value,
+    No distributional assumptions — uses the actual historical percentile.
+    Scales to multi-day holding periods via square-root-of-time rule.
+    """
+    _validate_inputs(port_returns, confidence, holding_period)
+
+    alpha   = 1 - confidence
+    returns = port_returns.values
+
+    # 1-day VaR and CVaR
+    var_1d  = np.percentile(returns, alpha * 100)
+    cvar_1d = returns[returns <= var_1d].mean()
+
+    # Scale to holding period
+    var_pct, cvar_pct = _scale_to_holding_period(var_1d, cvar_1d, holding_period)
+
+    return _build_result(
+        method="Historical",
+        var_pct=var_pct,
+        cvar_pct=cvar_pct,
+        portfolio_value=portfolio_value,
+        holding_period=holding_period,
+        confidence=confidence,
+        extra={
+            "n_observations": len(returns),
+            "return_series":  returns.tolist(),   # for charting
+        }
     )
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 2. Parametric (Gaussian) VaR
+# ══════════════════════════════════════════════════════════════════════════════
 
 def parametric_var(
-    returns: pd.Series,
-    confidence: float,
+    port_returns: pd.Series,
     portfolio_value: float,
-) -> VaRResult:
+    confidence: float = 0.95,
+    holding_period: int = 1,
+) -> dict:
     """
-    Gaussian parametric VaR.
-    Assumes returns are normally distributed; uses mu, sigma, and the Z-score.
+    VaR assuming normally distributed portfolio returns.
 
-    VaR  = mu + Z * sigma
-    CVaR = mu - sigma * phi(Z) / alpha       (closed-form Expected Shortfall)
+    Fits a Gaussian to the return series using sample mean and std,
+    then derives VaR from the inverse CDF at the alpha tail.
     """
-    alpha    = 1 - confidence
-    mu       = returns.mean()
-    sigma    = returns.std()
-    z        = stats.norm.ppf(alpha)
+    _validate_inputs(port_returns, confidence, holding_period)
 
-    var_pct  = mu + z * sigma
-    cvar_pct = mu - sigma * stats.norm.pdf(z) / alpha
+    alpha  = 1 - confidence
+    returns = port_returns.values
 
-    return VaRResult(
-        method        = "Parametric",
-        var_pct       = var_pct,
-        var_usd       = abs(var_pct)  * portfolio_value,
-        cvar_pct      = cvar_pct,
-        cvar_usd      = abs(cvar_pct) * portfolio_value,
+    mu    = returns.mean()
+    sigma = returns.std(ddof=1)
+    z     = stats.norm.ppf(alpha)
+
+    # 1-day VaR and CVaR
+    var_1d  = mu + z * sigma
+    cvar_1d = mu - sigma * stats.norm.pdf(z) / alpha
+
+    # Scale to holding period
+    var_pct, cvar_pct = _scale_to_holding_period(var_1d, cvar_1d, holding_period)
+
+    # Normality test (Jarque-Bera) — informational, not blocking
+    jb_stat, jb_pval = stats.jarque_bera(returns)
+
+    return _build_result(
+        method="Parametric (Gaussian)",
+        var_pct=var_pct,
+        cvar_pct=cvar_pct,
+        portfolio_value=portfolio_value,
+        holding_period=holding_period,
+        confidence=confidence,
+        extra={
+            "mean_daily_return": round(float(mu), 6),
+            "daily_volatility":  round(float(sigma), 6),
+            "z_score":           round(float(z), 4),
+            "normality_pvalue":  round(float(jb_pval), 4),
+            "normality_warning": jb_pval < 0.05,   # True = returns may not be normal
+        }
     )
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 3. Monte Carlo VaR
+# ══════════════════════════════════════════════════════════════════════════════
 
 def monte_carlo_var(
-    returns: pd.Series,
-    confidence: float,
+    port_returns: pd.Series,
     portfolio_value: float,
-    n_sims: int = 10_000,
-    horizon: int = 1,
-    seed: int = 42,
-) -> tuple[VaRResult, np.ndarray]:
+    confidence: float = 0.95,
+    holding_period: int = 1,
+    n_simulations: int = 10_000,
+    random_seed: int = 42,
+) -> dict:
     """
-    Monte Carlo VaR via Geometric Brownian Motion.
-    Draws n_sims random returns from N(mu*horizon, sigma*sqrt(horizon)),
-    then takes the empirical percentile of simulated outcomes.
+    VaR via Monte Carlo simulation of portfolio returns.
 
-    Returns the VaRResult and the raw simulated array (useful for plotting).
+    Simulates n_simulations random return paths over the holding period
+    using GBM parameterised by the historical mean and volatility.
     """
-    alpha     = 1 - confidence
-    mu        = returns.mean()
-    sigma     = returns.std()
+    _validate_inputs(port_returns, confidence, holding_period)
 
-    rng       = np.random.default_rng(seed)
-    simulated = rng.normal(mu * horizon, sigma * np.sqrt(horizon), n_sims)
+    alpha   = 1 - confidence
+    returns = port_returns.values
 
-    var_pct   = np.percentile(simulated, alpha * 100)
-    cvar_pct  = simulated[simulated <= var_pct].mean()
+    mu    = returns.mean()
+    sigma = returns.std(ddof=1)
 
-    result = VaRResult(
-        method        = "Monte Carlo",
-        var_pct       = var_pct,
-        var_usd       = abs(var_pct)  * portfolio_value,
-        cvar_pct      = cvar_pct,
-        cvar_usd      = abs(cvar_pct) * portfolio_value,
+    np.random.seed(random_seed)
+    simulated = np.random.normal(
+        loc   = mu    * holding_period,
+        scale = sigma * np.sqrt(holding_period),
+        size  = n_simulations,
     )
-    return result, simulated
 
+    var_pct  = np.percentile(simulated, alpha * 100)
+    cvar_pct = simulated[simulated <= var_pct].mean()
 
-def run_all(
-    returns: pd.Series,
-    confidence: float,
-    portfolio_value: float,
-    n_sims: int = 10_000,
-    horizon: int = 1,
-    seed: int = 42,
-) -> tuple[list[VaRResult], np.ndarray]:
-    """
-    Run all three VaR methods and return results as a list of VaRResult objects
-    plus the Monte Carlo simulated array.
-
-    Usage
-    -----
-    results, mc_sims = run_all(port_returns, confidence=0.95, portfolio_value=100_000)
-    summary_df       = results_to_dataframe(results)
-    """
-    hist = historical_var(returns, confidence, portfolio_value)
-    para = parametric_var(returns, confidence, portfolio_value)
-    mc, simulated = monte_carlo_var(returns, confidence, portfolio_value, n_sims, horizon, seed)
-
-    return [hist, para, mc], simulated
-
-
-def results_to_dataframe(results: list[VaRResult]) -> pd.DataFrame:
-    """Convert a list of VaRResult objects into a clean summary DataFrame."""
-    rows = [
-        {
-            "Method"  : r.method,
-            "VaR (%)" : f"{r.var_pct:.3%}",
-            "VaR ($)" : f"${r.var_usd:,.0f}",
-            "CVaR ($)": f"${r.cvar_usd:,.0f}",
+    return _build_result(
+        method="Monte Carlo",
+        var_pct=var_pct,
+        cvar_pct=cvar_pct,
+        portfolio_value=portfolio_value,
+        holding_period=holding_period,
+        confidence=confidence,
+        extra={
+            "n_simulations":    n_simulations,
+            "simulated_returns": simulated.tolist(),   # for charting
+            "mean_daily_return": round(float(mu), 6),
+            "daily_volatility":  round(float(sigma), 6),
         }
-        for r in results
-    ]
-    return pd.DataFrame(rows).set_index("Method")
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 4. Run all three methods together
+# ══════════════════════════════════════════════════════════════════════════════
+
+def compute_all_var(
+    port_returns: pd.Series,
+    portfolio_value: float,
+    confidence: float = 0.95,
+    holding_period: int = 1,
+    n_simulations: int = 10_000,
+) -> dict:
+    """
+    Run all three VaR methods and return results in a single dict.
+
+    Returns
+    -------
+    dict with keys:
+        'historical'  — result from historical_var()
+        'parametric'  — result from parametric_var()
+        'monte_carlo' — result from monte_carlo_var()
+        'summary'     — pd.DataFrame comparing all three methods
+    """
+    hist = historical_var(port_returns, portfolio_value, confidence, holding_period)
+    para = parametric_var(port_returns, portfolio_value, confidence, holding_period)
+    mc   = monte_carlo_var(port_returns, portfolio_value, confidence, holding_period, n_simulations)
+
+    summary = pd.DataFrame([
+        {
+            "Method":        r["method"],
+            "VaR (%)":       r["var_pct_fmt"],
+            "VaR ($)":       r["var_usd_fmt"],
+            "CVaR / ES ($)": r["cvar_usd_fmt"],
+        }
+        for r in [hist, para, mc]
+    ]).set_index("Method")
+
+    return {
+        "historical":  hist,
+        "parametric":  para,
+        "monte_carlo": mc,
+        "summary":     summary,
+    }
