@@ -4,7 +4,7 @@ A full-stack portfolio risk analytics web application built with Flask. Enter an
 
 ---
 ## Example output
-![alt text](image.png)
+![VaR Platform Screenshot](figures/Example.png)
 
 ## Features
 
