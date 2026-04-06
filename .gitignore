@@ -210,3 +210,6 @@ __marimo__/
 .vscode/
 __pycache__/
 *.pyc
+
+#DS
+.DS_Store
