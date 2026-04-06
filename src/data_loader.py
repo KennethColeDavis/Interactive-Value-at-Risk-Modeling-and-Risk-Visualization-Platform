@@ -1,10 +1,5 @@
 """
-data_loader.py
---------------
-Handles all data fetching and portfolio construction for the VaR application.
-Fetches price data from Yahoo Finance, computes position values, derives
-portfolio weights from actual holdings, and returns clean returns data
-ready for VaR calculations.
+ Handles all data fetching and portfolio construction/weights for the VaR application.
 """
 
 import yfinance as yf
@@ -13,16 +8,15 @@ import numpy as np
 from datetime import datetime, timedelta
 
 
-# ── Lookback window mapping ────────────────────────────────────────────────
+# Possible user choices for lookback periods
 LOOKBACK_PERIODS = {
     "6mo":  180,
     "1y":   365,
     "2y":   730,
 }
 
-
+#Convert a lookback string to (start_date, end_date) strings.
 def _resolve_dates(lookback: str) -> tuple[str, str]:
-    """Convert a lookback string to (start_date, end_date) strings."""
     if lookback not in LOOKBACK_PERIODS:
         raise ValueError(f"Invalid lookback '{lookback}'. Choose from: {list(LOOKBACK_PERIODS)}")
     days = LOOKBACK_PERIODS[lookback]
@@ -32,18 +26,7 @@ def _resolve_dates(lookback: str) -> tuple[str, str]:
 
 
 def fetch_prices(tickers: list[str], lookback: str = "1y") -> pd.DataFrame:
-    """
-    Download adjusted daily close prices for a list of tickers.
 
-    Parameters
-    ----------
-    tickers  : list of ticker strings, e.g. ['AAPL', 'MSFT']
-    lookback : '6mo', '1y', or '2y'
-
-    Returns
-    -------
-    pd.DataFrame  — columns = tickers, index = Date, values = adjusted close prices
-    """
     tickers = [t.upper().strip() for t in tickers]
     start, end = _resolve_dates(lookback)
 
@@ -67,18 +50,11 @@ def fetch_prices(tickers: list[str], lookback: str = "1y") -> pd.DataFrame:
         if missing > 5:
             print(f"  ⚠️  {col}: {missing} missing price days — check ticker symbol")
 
-    prices.dropna(inplace=True)  # drop any remaining rows with NaNs across tickers
+    prices.dropna(inplace=True) 
     return prices
 
 
 def get_current_prices(tickers: list[str]) -> dict[str, float]:
-    """
-    Fetch the latest available price for each ticker.
-
-    Returns
-    -------
-    dict  — {ticker: current_price}
-    """
     tickers = [t.upper().strip() for t in tickers]
     current_prices = {}
 
@@ -100,28 +76,7 @@ def get_current_prices(tickers: list[str]) -> dict[str, float]:
 
 
 def build_portfolio(holdings: dict[str, float], lookback: str = "1y") -> dict:
-    """
-    Construct a full portfolio object from user-supplied holdings.
 
-    Parameters
-    ----------
-    holdings : dict mapping ticker -> number of shares held
-               e.g. {'AAPL': 10, 'MSFT': 5, 'GOOGL': 8}
-    lookback : historical window — '6mo', '1y', or '2y'
-
-    Returns
-    -------
-    dict with keys:
-        tickers          — list of ticker strings
-        shares           — dict {ticker: shares}
-        current_prices   — dict {ticker: price}
-        position_values  — dict {ticker: dollar value}
-        portfolio_value  — total portfolio value in USD
-        weights          — np.array of portfolio weights (sums to 1.0)
-        prices           — pd.DataFrame of historical adjusted close prices
-        returns          — pd.DataFrame of individual daily log-returns
-        port_returns     — pd.Series of weighted portfolio daily log-returns
-    """
     if not holdings:
         raise ValueError("Holdings cannot be empty.")
 
@@ -136,15 +91,15 @@ def build_portfolio(holdings: dict[str, float], lookback: str = "1y") -> dict:
     if portfolio_value <= 0:
         raise ValueError("Portfolio value must be greater than zero.")
 
-    # ── Weights derived from actual holdings ──────────────────────────────
+    # Weights derived from actual holdings
     weights = np.array([position_values[t] / portfolio_value for t in tickers])
 
-    # ── Historical price data ──────────────────────────────────────────────
+    # Historical price data 
     prices = fetch_prices(tickers, lookback)
 
-    # ── Daily log-returns ──────────────────────────────────────────────────
+    # Daily log-returns 
     returns      = np.log(prices / prices.shift(1)).dropna()
-    port_returns = (returns * weights).sum(axis=1)  # weighted portfolio return series
+    port_returns = (returns * weights).sum(axis=1) 
 
     return {
         "tickers":         tickers,
@@ -160,17 +115,6 @@ def build_portfolio(holdings: dict[str, float], lookback: str = "1y") -> dict:
 
 
 def portfolio_summary(portfolio: dict) -> pd.DataFrame:
-    """
-    Return a human-readable summary DataFrame of the portfolio holdings.
-
-    Parameters
-    ----------
-    portfolio : dict returned by build_portfolio()
-
-    Returns
-    -------
-    pd.DataFrame with columns: Ticker, Shares, Price, Value, Weight
-    """
     rows = []
     for t in portfolio["tickers"]:
         rows.append({

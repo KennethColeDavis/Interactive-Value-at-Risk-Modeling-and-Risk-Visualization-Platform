@@ -1,16 +1,10 @@
 """
 var_models.py
--------------
-All three VaR calculation methods for the portfolio risk application.
 
-Each method accepts:
-    port_returns     : pd.Series of daily portfolio log-returns
-    portfolio_value  : total portfolio value in USD
-    confidence       : confidence level, e.g. 0.90, 0.95, 0.99
-    holding_period   : number of days (1, 5, or 10)
-
-Each method returns a VaRResult dict with consistent keys so Flask
-routes and the frontend can handle all three methods identically.
+All three VaR calculation methods for the portfolio risk application:
+1. Historical VaR
+2. Parametric (Gaussian) VaR
+3. Monte Carlo VaR
 """
 
 import numpy as np
@@ -33,7 +27,6 @@ CONFIDENCE_LEVELS = {
 
 
 def _validate_inputs(port_returns: pd.Series, confidence: float, holding_period: int):
-    """Shared input validation for all VaR methods."""
     if len(port_returns) < 30:
         raise ValueError(f"Insufficient return data: {len(port_returns)} observations (minimum 30 required).")
     if not (0 < confidence < 1):
@@ -43,10 +36,6 @@ def _validate_inputs(port_returns: pd.Series, confidence: float, holding_period:
 
 
 def _scale_to_holding_period(var_1d: float, cvar_1d: float, holding_period: int) -> tuple[float, float]:
-    """
-    Scale 1-day VaR and CVaR to a multi-day holding period using
-    the square-root-of-time rule.
-    """
     scale = np.sqrt(holding_period)
     return var_1d * scale, cvar_1d * scale
 
@@ -60,12 +49,7 @@ def _build_result(
     confidence: float,
     extra: dict = None,
 ) -> dict:
-    """
-    Construct a standardised VaRResult dict.
-
-    All $ values are positive (representing losses).
-    All % values are negative (representing return thresholds).
-    """
+    
     var_usd  = abs(var_pct)  * portfolio_value
     cvar_usd = abs(cvar_pct) * portfolio_value
 
@@ -94,9 +78,7 @@ def _build_result(
     return result
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 1. Historical VaR
-# ══════════════════════════════════════════════════════════════════════════════
 
 def historical_var(
     port_returns: pd.Series,
@@ -104,12 +86,7 @@ def historical_var(
     confidence: float = 0.95,
     holding_period: int = 1,
 ) -> dict:
-    """
-    Non-parametric VaR from the empirical return distribution.
 
-    No distributional assumptions — uses the actual historical percentile.
-    Scales to multi-day holding periods via square-root-of-time rule.
-    """
     _validate_inputs(port_returns, confidence, holding_period)
 
     alpha   = 1 - confidence
@@ -136,9 +113,7 @@ def historical_var(
     )
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 2. Parametric (Gaussian) VaR
-# ══════════════════════════════════════════════════════════════════════════════
 
 def parametric_var(
     port_returns: pd.Series,
@@ -146,12 +121,6 @@ def parametric_var(
     confidence: float = 0.95,
     holding_period: int = 1,
 ) -> dict:
-    """
-    VaR assuming normally distributed portfolio returns.
-
-    Fits a Gaussian to the return series using sample mean and std,
-    then derives VaR from the inverse CDF at the alpha tail.
-    """
     _validate_inputs(port_returns, confidence, holding_period)
 
     alpha  = 1 - confidence
@@ -167,8 +136,6 @@ def parametric_var(
 
     # Scale to holding period
     var_pct, cvar_pct = _scale_to_holding_period(var_1d, cvar_1d, holding_period)
-
-    # Normality test (Jarque-Bera) — informational, not blocking
     jb_stat, jb_pval = stats.jarque_bera(returns)
 
     return _build_result(
@@ -188,9 +155,7 @@ def parametric_var(
     )
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 3. Monte Carlo VaR
-# ══════════════════════════════════════════════════════════════════════════════
 
 def monte_carlo_var(
     port_returns: pd.Series,
@@ -200,12 +165,7 @@ def monte_carlo_var(
     n_simulations: int = 10_000,
     random_seed: int = 42,
 ) -> dict:
-    """
-    VaR via Monte Carlo simulation of portfolio returns.
 
-    Simulates n_simulations random return paths over the holding period
-    using GBM parameterised by the historical mean and volatility.
-    """
     _validate_inputs(port_returns, confidence, holding_period)
 
     alpha   = 1 - confidence
@@ -240,9 +200,7 @@ def monte_carlo_var(
     )
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # 4. Run all three methods together
-# ══════════════════════════════════════════════════════════════════════════════
 
 def compute_all_var(
     port_returns: pd.Series,
@@ -251,17 +209,7 @@ def compute_all_var(
     holding_period: int = 1,
     n_simulations: int = 10_000,
 ) -> dict:
-    """
-    Run all three VaR methods and return results in a single dict.
 
-    Returns
-    -------
-    dict with keys:
-        'historical'  — result from historical_var()
-        'parametric'  — result from parametric_var()
-        'monte_carlo' — result from monte_carlo_var()
-        'summary'     — pd.DataFrame comparing all three methods
-    """
     hist = historical_var(port_returns, portfolio_value, confidence, holding_period)
     para = parametric_var(port_returns, portfolio_value, confidence, holding_period)
     mc   = monte_carlo_var(port_returns, portfolio_value, confidence, holding_period, n_simulations)
