@@ -1,3 +1,5 @@
+const STORAGE_KEY = "var_saved_portfolios";
+
 const state = {
   holdings: [],
   confidence: "95",
@@ -14,9 +16,22 @@ async function init() {
   await loadConfig();
   addHolding();
   addHolding();
-  document.getElementById("add-holding-btn").addEventListener("click", addHolding);
+  document.getElementById("add-holding-btn").addEventListener("click", () => addHolding());
   document.getElementById("analyse-btn").addEventListener("click", runAnalysis);
   document.getElementById("backtest-btn").addEventListener("click", runBacktest);
+
+  // Portfolio persistence
+  document.getElementById("save-portfolio-btn").addEventListener("click", onSavePortfolio);
+  document.getElementById("export-portfolios-btn").addEventListener("click", exportPortfolios);
+  document.getElementById("import-portfolios-btn").addEventListener("click", () => {
+    document.getElementById("import-file-input").click();
+  });
+  document.getElementById("import-file-input").addEventListener("change", (e) => {
+    if (e.target.files[0]) importPortfolios(e.target.files[0]);
+    e.target.value = "";
+  });
+
+  renderSavedPortfolios();
 }
 
 async function loadConfig() {
@@ -24,9 +39,9 @@ async function loadConfig() {
   const data = await res.json();
   const cfg  = data.config;
 
-  buildPills("confidence-pills",    cfg.confidence_levels,  "confidence");
-  buildPills("lookback-pills",      cfg.lookback_periods,   "lookback");
-  buildPills("holding-period-pills", cfg.holding_periods,   "holdingPeriod");
+  buildPills("confidence-pills",     cfg.confidence_levels,  "confidence");
+  buildPills("lookback-pills",       cfg.lookback_periods,   "lookback");
+  buildPills("holding-period-pills", cfg.holding_periods,    "holdingPeriod");
 }
 
 // ── Pills ─────────────────────────────────────────────────────────────────
@@ -47,10 +62,19 @@ function buildPills(containerId, options, stateKey) {
   });
 }
 
+function selectPill(containerId, value, stateKey) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  state[stateKey] = value;
+  container.querySelectorAll(".pill").forEach(p => {
+    p.classList.toggle("active", p.dataset.value === value);
+  });
+}
+
 // ── Holdings ──────────────────────────────────────────────────────────────
 
-function addHolding() {
-  const id = Date.now();
+function addHolding(prefill = null) {
+  const id = Date.now() + Math.random(); // avoid collisions when loading multiple at once
   state.holdings.push({ id, ticker: "", shares: "", valid: false });
 
   const row = document.createElement("div");
@@ -70,7 +94,33 @@ function addHolding() {
   row.querySelector(".remove-btn").addEventListener("click", () => removeHolding(id));
 
   document.getElementById("holdings-list").appendChild(row);
-  row.querySelector("[data-field='ticker']").focus();
+
+  // Pre-fill if loading a saved portfolio
+  if (prefill) {
+    const tickerInput  = row.querySelector("[data-field='ticker']");
+    const sharesInput  = row.querySelector("[data-field='shares']");
+    const hint         = row.querySelector(`[data-hint="${id}"]`);
+
+    tickerInput.value = prefill.ticker;
+    sharesInput.value = prefill.shares;
+
+    const h = state.holdings.find(h => h.id === id);
+    if (h) { h.ticker = prefill.ticker; h.shares = String(prefill.shares); }
+
+    // Validate the pre-filled ticker
+    if (prefill.ticker) {
+      validateTicker(prefill.ticker, id, tickerInput, hint);
+    }
+  } else {
+    row.querySelector("[data-field='ticker']").focus();
+  }
+
+  checkRunnable();
+}
+
+function clearAllHoldings() {
+  state.holdings = [];
+  document.getElementById("holdings-list").innerHTML = "";
   checkRunnable();
 }
 
@@ -136,10 +186,14 @@ async function validateTicker(symbol, id, input, hint) {
 }
 
 function checkRunnable() {
-  const filled = state.holdings.filter(h => h.ticker && parseFloat(h.shares) > 0);
+  const filled  = state.holdings.filter(h => h.ticker && parseFloat(h.shares) > 0);
   const enabled = filled.length > 0;
   document.getElementById("analyse-btn").disabled  = !enabled;
   document.getElementById("backtest-btn").disabled = !enabled;
+
+  // Enable save button only if there's at least one valid filled holding
+  const saveBtn = document.getElementById("save-portfolio-btn");
+  if (saveBtn) saveBtn.disabled = !enabled;
 }
 
 // ── Analysis ──────────────────────────────────────────────────────────────
@@ -184,8 +238,8 @@ function setLoading(on) {
   const btn    = document.getElementById("analyse-btn");
   const text   = btn.querySelector(".btn-text");
   const loader = btn.querySelector(".btn-loader");
-  btn.disabled = on;
-  text.hidden  = on;
+  btn.disabled  = on;
+  text.hidden   = on;
   loader.hidden = !on;
 }
 
@@ -236,9 +290,9 @@ function renderResults(data) {
 
   // VaR cards
   const methods = [
-    { key: "historical",  label: "Historical",           result: var_results.historical },
+    { key: "historical",  label: "Historical",            result: var_results.historical },
     { key: "parametric",  label: "Parametric (Gaussian)", result: var_results.parametric },
-    { key: "monte_carlo", label: "Monte Carlo",           result: var_results.monte_carlo },
+    { key: "monte_carlo", label: "Monte Carlo",            result: var_results.monte_carlo },
   ];
 
   const cardsEl = document.getElementById("var-cards");
@@ -574,7 +628,7 @@ function renderBacktestChart(bt, methodColors) {
     const varSeries = bt.results[key].var_series;
     datasets.push({
       label:       `${key.replace("_", " ")} VaR`,
-      data:        sliced(varSeries.length === labels.length ? varSeries : varSeries),
+      data:        sliced(varSeries),
       type:        "line",
       borderColor: color,
       borderWidth: 1.5,
@@ -613,6 +667,171 @@ function renderBacktestChart(bt, methodColors) {
       }
     }
   });
+}
+
+// ── Portfolio Persistence ─────────────────────────────────────────────────
+
+function getSavedPortfolios() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function setSavedPortfolios(portfolios) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(portfolios));
+}
+
+function onSavePortfolio() {
+  const nameInput = document.getElementById("portfolio-name-input");
+  const name      = nameInput.value.trim();
+
+  if (!name) {
+    nameInput.focus();
+    nameInput.classList.add("input-error");
+    setTimeout(() => nameInput.classList.remove("input-error"), 1500);
+    return;
+  }
+
+  const holdings = state.holdings
+    .filter(h => h.ticker && parseFloat(h.shares) > 0)
+    .map(h => ({ ticker: h.ticker, shares: parseFloat(h.shares) }));
+
+  if (holdings.length === 0) return;
+
+  const portfolios = getSavedPortfolios();
+
+  const entry = {
+    id:            String(Date.now()),
+    name,
+    savedAt:       new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+    holdings,
+    confidence:    state.confidence,
+    lookback:      state.lookback,
+    holdingPeriod: state.holdingPeriod,
+  };
+
+  portfolios.unshift(entry); // newest first
+  setSavedPortfolios(portfolios);
+
+  nameInput.value = "";
+  renderSavedPortfolios();
+}
+
+function loadPortfolio(id) {
+  const portfolios = getSavedPortfolios();
+  const entry      = portfolios.find(p => p.id === id);
+  if (!entry) return;
+
+  clearAllHoldings();
+
+  entry.holdings.forEach(h => addHolding({ ticker: h.ticker, shares: h.shares }));
+
+  selectPill("confidence-pills",     entry.confidence,    "confidence");
+  selectPill("lookback-pills",       entry.lookback,      "lookback");
+  selectPill("holding-period-pills", entry.holdingPeriod, "holdingPeriod");
+
+  // Scroll input panel into view
+  document.querySelector(".panel-input").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function deletePortfolio(id) {
+  const portfolios = getSavedPortfolios().filter(p => p.id !== id);
+  setSavedPortfolios(portfolios);
+  renderSavedPortfolios();
+}
+
+function renderSavedPortfolios() {
+  const portfolios = getSavedPortfolios();
+  const list       = document.getElementById("saved-portfolios-list");
+  const empty      = document.getElementById("saved-portfolios-empty");
+  const exportBtn  = document.getElementById("export-portfolios-btn");
+
+  list.innerHTML = "";
+
+  if (portfolios.length === 0) {
+    empty.hidden  = false;
+    exportBtn.disabled = true;
+    return;
+  }
+
+  empty.hidden  = true;
+  exportBtn.disabled = false;
+
+  portfolios.forEach(p => {
+    const tickers = p.holdings.map(h => h.ticker).join(", ");
+    const item    = document.createElement("div");
+    item.className = "saved-portfolio-item";
+    item.innerHTML = `
+      <div class="spi-info">
+        <span class="spi-name">${p.name}</span>
+        <span class="spi-meta">${tickers} · ${p.savedAt}</span>
+      </div>
+      <div class="spi-actions">
+        <button class="spi-btn spi-load" title="Load portfolio">↑ Load</button>
+        <button class="spi-btn spi-delete" title="Delete portfolio">✕</button>
+      </div>
+    `;
+    item.querySelector(".spi-load").addEventListener("click",   () => loadPortfolio(p.id));
+    item.querySelector(".spi-delete").addEventListener("click", () => deletePortfolio(p.id));
+    list.appendChild(item);
+  });
+}
+
+function exportPortfolios() {
+  const portfolios = getSavedPortfolios();
+  if (portfolios.length === 0) return;
+
+  const blob = new Blob([JSON.stringify(portfolios, null, 2)], { type: "application/json" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href     = url;
+  a.download = "var_portfolios.json";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importPortfolios(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const imported  = JSON.parse(e.target.result);
+      if (!Array.isArray(imported)) throw new Error("Invalid format");
+
+      const existing  = getSavedPortfolios();
+      const existIds  = new Set(existing.map(p => p.id));
+
+      // Merge: skip any whose id already exists
+      const merged = [...existing];
+      let added = 0;
+      imported.forEach(p => {
+        if (!existIds.has(p.id) && p.name && Array.isArray(p.holdings)) {
+          merged.push(p);
+          added++;
+        }
+      });
+
+      setSavedPortfolios(merged);
+      renderSavedPortfolios();
+
+      if (added === 0) {
+        showImportFeedback("All portfolios already saved — nothing new imported.");
+      } else {
+        showImportFeedback(`Imported ${added} portfolio${added > 1 ? "s" : ""}.`);
+      }
+    } catch {
+      showImportFeedback("Could not read file — make sure it is a valid VaR export.");
+    }
+  };
+  reader.readAsText(file);
+}
+
+function showImportFeedback(msg) {
+  const el = document.getElementById("import-feedback");
+  el.textContent = msg;
+  el.hidden = false;
+  setTimeout(() => { el.hidden = true; }, 3500);
 }
 
 document.addEventListener("DOMContentLoaded", init);

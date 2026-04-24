@@ -111,6 +111,8 @@ body {
   gap: 2rem;
   position: sticky;
   top: 72px;
+  max-height: calc(100vh - 88px);
+  overflow-y: auto;
 }
 
 .panel-results {
@@ -734,9 +736,201 @@ body {
   border-radius: 50%;
   flex-shrink: 0;
 }
+
+/* ── Saved Portfolios ── */
+
+.save-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+}
+
+.portfolio-name-input {
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border-dark);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  color: var(--text-1);
+  transition: border-color 0.15s, box-shadow 0.15s;
+  width: 100%;
+}
+
+.portfolio-name-input::placeholder { color: var(--text-3); }
+
+.portfolio-name-input:focus {
+  outline: none;
+  border-color: var(--accent-2);
+  box-shadow: 0 0 0 3px rgba(26,107,255,0.12);
+}
+
+.portfolio-name-input.input-error {
+  border-color: var(--accent-3);
+}
+
+.btn-save {
+  padding: 0.55rem 1rem;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.btn-save:hover:not(:disabled) { background: #1A1A1A; }
+.btn-save:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* Saved list */
+.saved-portfolios-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.saved-portfolios-empty {
+  font-size: 0.78rem;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  margin-bottom: 0.75rem;
+}
+
+.saved-portfolio-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.75rem;
+  animation: fadeIn 0.18s ease;
+  transition: border-color 0.15s;
+}
+
+.saved-portfolio-item:hover {
+  border-color: var(--border-dark);
+}
+
+.spi-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.spi-name {
+  font-family: var(--font-display);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spi-meta {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spi-actions {
+  display: flex;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.spi-btn {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border-dark);
+  background: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.spi-load {
+  color: var(--accent-2);
+  border-color: rgba(26,107,255,0.3);
+}
+
+.spi-load:hover {
+  background: rgba(26,107,255,0.08);
+  border-color: var(--accent-2);
+}
+
+.spi-delete {
+  color: var(--text-3);
+}
+
+.spi-delete:hover {
+  background: var(--error-bg);
+  border-color: var(--accent-3);
+  color: var(--accent-3);
+}
+
+/* Export / Import */
+.persist-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.btn-persist {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid var(--border-dark);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  text-align: center;
+}
+
+.btn-persist:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(0,0,0,0.02);
+}
+
+.btn-persist:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Import feedback */
+.import-feedback {
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  color: var(--success);
+  margin-bottom: 0.5rem;
+  animation: fadeIn 0.2s ease;
+}
+
+/* ── Responsive ── */
 @media (max-width: 1100px) {
   .layout { grid-template-columns: 1fr; }
-  .panel-input { position: static; }
+  .panel-input { position: static; max-height: none; }
   .var-cards { grid-template-columns: repeat(3, 1fr); }
   .charts-grid-3 { grid-template-columns: 1fr; }
 }

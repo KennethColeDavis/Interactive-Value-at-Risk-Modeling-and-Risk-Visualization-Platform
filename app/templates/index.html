@@ -73,6 +73,38 @@
 
       <div id="input-error" class="error-banner" hidden></div>
 
+      <!-- ── Saved Portfolios ── -->
+      <section class="input-section">
+        <h2 class="section-title">Saved Portfolios</h2>
+        <p class="section-sub">Save your current holdings and parameters to reload later.</p>
+
+        <!-- Save row -->
+        <div class="save-row">
+          <input
+            id="portfolio-name-input"
+            type="text"
+            placeholder="Portfolio name…"
+            maxlength="40"
+            class="portfolio-name-input"
+          />
+          <button id="save-portfolio-btn" class="btn-save" disabled>Save</button>
+        </div>
+
+        <!-- Saved list -->
+        <div id="saved-portfolios-list" class="saved-portfolios-list"></div>
+        <p id="saved-portfolios-empty" class="saved-portfolios-empty" hidden>No saved portfolios yet.</p>
+
+        <!-- Import feedback -->
+        <p id="import-feedback" class="import-feedback" hidden></p>
+
+        <!-- Export / Import -->
+        <div class="persist-actions">
+          <button id="export-portfolios-btn" class="btn-persist" disabled>↓ Export JSON</button>
+          <button id="import-portfolios-btn" class="btn-persist">↑ Import JSON</button>
+          <input id="import-file-input" type="file" accept=".json" hidden />
+        </div>
+      </section>
+
     </aside>
 
     <!-- ── RIGHT PANEL: Results ── -->
@@ -82,7 +114,6 @@
         <div class="empty-icon">◈</div>
         <p>Add your holdings and run the analysis<br>to see your portfolio risk metrics.</p>
       </div>
-
 
       <div id="results-content" hidden>
 
